@@ -56,6 +56,55 @@ if False:
     plt.show(block=True)
 
 
+def test_260615():
+    ksz = 4
+    feats = [] # np.random.rand(1024, ksz, ksz)
+
+    for step, it in enumerate(x_train):
+        h, w = it.shape
+        for i in range(h-ksz):
+            for j in range(w-ksz):
+                patch = it[i:i+ksz, j:j+ksz]
+                patch_mean = np.mean(patch)
+                patch = patch - patch_mean
+                patch_absmax = np.max(np.abs(patch))
+                if patch_absmax < 1e-3:
+                    continue
+
+                patch = patch / patch_absmax
+                patch_s2 = np.sum(patch * patch)
+                
+                if len(feats) == 0:
+                    feats.append(patch)
+                else:
+                    sim = np.zeros(len(feats))
+                    for k, f in enumerate(feats):
+                        sim[k] = np.sum(f * patch) / (np.sum(f * f) * patch_s2 + 1e-6)
+                        # print(np.sum(f*patch), np.sum(f * f), f)
+                    # print(sim)
+                    idx = np.argmax(sim)
+                    if sim[idx] < 0.1:
+                        feats.append(patch)
+        print(f'{step:06d}  {len(feats)}')
+        if step > 100:
+            break
+
+    fig, axes = plt.subplots(2, 5, figsize=(10, 5))
+    # axes.set(title="样例")
+    for i, ax in enumerate(axes.flat):
+        if i >= len(feats):
+            break
+        ax.imshow(feats[i], cmap='gray')
+        ax.axis('off')
+    plt.tight_layout()
+    plt.show(block=True)
+
+# class Node:
+#     def __init__(self, input, classmap):
+        
+#     def 
+
+
 def find_beg_end(val):
     for beg in range(val.size):
         if val[beg] > 0:
@@ -70,15 +119,13 @@ def find_beg_end(val):
 class MyNet:
     def __init__(self):
         self.ksz = 16
-        self.max_feat = 40
-        self.n_feat = 0  # 
-        # self.mat1 = np.random.rand(self.max_feat, self.ksz**2)
-        self.mat1 = np.zeros((self.max_feat, self.ksz**2), dtype=np.float32)
-        self.mat2 = np.zeros((self.max_feat,), dtype=np.int32) # 直接特征到类的映射
+        self.head = 1  # 没有用
+        self.mat = np.random.rand(10 * self.head, self.ksz**2)
 
         # 用于记录
         self.enn = 0
         self.epoch = 0
+        
 
     def get_feat(self, x):
         x1 = np.sum(x, axis=(1,))
@@ -92,42 +139,33 @@ class MyNet:
         f = feat.flatten()
         return f
 
-    def learn_v1(self, x, y:int, alpha:float):
+    def learn_v1(self, x, y:int):
         f = self.get_feat(x)
-        
-        if self.n_feat == 0:
-            self.mat1[0] = f
-            self.mat2[0] = y
-            self.n_feat += 1
-            return
-        
-        yp = self.mat1.dot(f)
-        idx1 = np.argmax(yp[:self.n_feat])
+        yp = self.mat.dot(f)
+        idx1 = np.argmax(yp)
         val1 = yp[idx1]
-        y1 = self.mat2[idx1]
-
-        # 如果没用完，拓展
-        err = np.sum(np.abs(f - self.mat1[idx1]))
-        if self.n_feat < self.max_feat and err > 6:
-            self.mat1[self.n_feat] = f
-            self.mat2[self.n_feat] = y
-            self.n_feat += 1
-            return
 
         yp[idx1] = 0
         idx2 = np.argmax(yp)
         val2 = yp[idx2]
-        y2 = self.mat2[idx2]
 
+        alpha = 0.002
         maxval = np.inf # 对目标足够确信时，没必要再学习，所以权重可以不限制
-        if y1 == y:
-            # if val2 > 0.25 * val1:
-            self.mat1[idx1] = np.clip(self.mat1[idx1] + alpha * f, -maxval, maxval)
+        if idx1 // self.head == y:
+            if val2 > 0.25 * val1:
+                self.mat[idx1] = np.clip(self.mat[idx1] + alpha * f, -maxval, maxval)
         else:
             # 方案一
-            self.mat1[idx1] = np.clip(self.mat1[idx1] - alpha * f, -maxval, maxval)
+            self.mat[idx1] = np.clip(self.mat[idx1] - alpha * f, -maxval, maxval)
 
-            if False:
+            # 方案二，不行
+            # err = self.mat[idx] - self.mat[y]
+            # self.mat[idx] = np.clip(self.mat[idx] + alpha * err, -2, 2)
+            # idx = idx - a * (idx - y)
+            #     = idx - a * idx + a * y
+            #     = (1-a) * idx + a * y
+
+            if True:
                 tt = [f, self.mat[idx1], self.mat[y], abs(self.mat[idx1] - self.mat[y])]
                 im = np.hstack([it.reshape(self.ksz, self.ksz) for it in tt])
                 vmin = im.min()
@@ -144,60 +182,60 @@ class MyNet:
         """ head = 1 时最好
         """
         f = self.get_feat(x)
-        yp = self.mat1.dot(f)
+        yp = self.mat.dot(f)
         idx = np.argmax(yp)
         
         maxval = np.inf # 对目标足够确信时，没必要再学习，所以权重可以不限制。但考虑到生物生长的限制，有限制也合理
         n = np.sum(yp > 1)
         if n > 1:
-            for k in range(10):
+            for k in range(10 * self.head):
                 if yp[k] <= 1: continue
-                flag = 1 if k == y else -1
-                self.mat1[k] = np.clip(self.mat1[k] + flag * alpha * f, -maxval, maxval)
+                flag = 1 if k // self.head == y else -1
+                self.mat[k] = np.clip(self.mat[k] + flag * alpha * f, -maxval, maxval)
         else: #elif n == 0:
-            flag = 1 if idx == y else -1
-            self.mat1[idx] = np.clip(self.mat1[idx] + flag * alpha * f, -maxval, maxval)
+            flag = 1 if idx // self.head == y else -1
+            self.mat[idx] = np.clip(self.mat[idx] + flag * alpha * f, -maxval, maxval)
 
     def learn_v3(self, x, y:int, alpha):
         f = self.get_feat(x)
-        yp = self.mat1.dot(f)
+        yp = self.mat.dot(f)
         idx = np.argmax(yp)
         
         # alpha = 0.05
         maxval = np.inf # 对目标足够确信时，没必要再学习，所以权重可以不限制
         n = np.sum(yp > 1)
-        if n == 1 and yp[idx] > 2:
+        if n == 1 and yp[idx] > 2 and idx == y:
             pass
         elif n == 0 or n == 1:
-            flag = 1 if idx == y else -1
-            self.mat1[idx] = np.clip(self.mat1[idx] + flag * alpha * f, -maxval, maxval)
+            flag = 1 if idx // self.head == y else -1
+            self.mat[idx] = np.clip(self.mat[idx] + flag * alpha * f, -maxval, maxval)
         else:
-            for k in range(10):
+            for k in range(10 * self.head):
                 if yp[k] <= 1: continue
                 # flag = 1 if k // self.head == y else -1
-                if k == y:
+                if k // self.head == y:
                     if k == idx:
-                        self.mat1[k] = np.clip(self.mat1[k] + alpha * f, -maxval, maxval)
+                        self.mat[k] = np.clip(self.mat[k] + alpha * f, -maxval, maxval)
                     else:
                         # self.mat[k] = np.clip(self.mat[k] + 0.5 * alpha * f, -maxval, maxval)
                         pass
                 else:
-                    self.mat1[k] = np.clip(self.mat1[k] - alpha * f, -maxval, maxval)
+                    self.mat[k] = np.clip(self.mat[k] - alpha * f, -maxval, maxval)
 
     def learn(self, x, y:int, alpha):
-        self.learn_v1(x, y, alpha)
+        self.learn_v3(x, y, alpha)
 
 
     def forget(self):
         """ 遗忘，一是减少能量消耗，二是弱化不重要的特征
         """
-        self.mat1 = 0.99 * self.mat1
+        self.mat = 0.99 * self.mat
 
     def predict(self, x):
         f = self.get_feat(x)
-        yp = self.mat1.dot(f)
-        idx = np.argmax(yp[:self.n_feat])
-        return self.mat2[idx]
+        yp = self.mat.dot(f)
+        idx = np.argmax(yp)
+        return idx // self.head
 
 def test():
     """ 按整体到局部的分辨策略
@@ -206,7 +244,7 @@ def test():
     """
     model = MyNet()
 
-    epochs = 5
+    epochs = 10
     epoch_record = {}
     alpha = 0.05
     for epoch in range(epochs):
@@ -243,22 +281,19 @@ def test():
 
         print(f'total {np.sum(stat[:,1])/np.sum(stat[:,0])}')
 
-    print(f"\n特征数：{model.n_feat}")
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12,5))
     for i in range(10):
-        ax1.plot(epoch_record[i], label=f'{i}')
-    ax2.bar(np.arange(10), [np.sum(model.mat2[:model.n_feat] == v) for v in range(10)])
+        plt.plot(epoch_record[i], label=f'{i}')
     plt.legend()
     plt.show()
 
-    for hi in range((model.n_feat + 9) // 10):
+    for hi in range(model.head):
         fig, axes = plt.subplots(2, 5, figsize=(10, 5))
-        mat = model.mat1[10 * hi : 10 * (hi + 1)]
-        print(mat.shape)
-        for i, ax in enumerate(axes.flat[:mat.shape[0]]):
-            feat = mat[i].reshape((model.ksz, model.ksz))
-            ax.imshow(feat, cmap='gray')
-            ax.set_title(f"Label: {model.mat2[hi * 10 + i]}")
+        mat = model.mat[hi::model.head]
+        # axes.set(title="样例")
+        for i, ax in enumerate(axes.flat):
+            im = mat[i].reshape((model.ksz, model.ksz))
+            ax.imshow(im, cmap='gray')
+            ax.set_title(f"Label: {i}")
             ax.axis('off')
         plt.tight_layout()
         plt.show(block=True)
