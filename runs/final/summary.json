@@ -1,0 +1,34 @@
+{
+  "pipeline": "bbox 28x28 -> MAE h2 + SimCLR 256 -> per-block L2 concat -> optimized forward rule (margin gate + normalized step + epoch averaging)",
+  "acc": {
+    "MAE h2": 0.9855499999999999,
+    "SimCLR": 0.9894000000000001,
+    "FUSION": 0.9926
+  },
+  "std": {
+    "MAE": 0.000250000000000028,
+    "SimCLR": 0.00030000000000002247,
+    "FUSION": 9.999999999998899e-05
+  },
+  "per_class": [
+    0.9989795918367347,
+    0.9973568281938326,
+    0.9903100775193798,
+    0.996039603960396,
+    0.9898167006109979,
+    0.9854260089686099,
+    0.9906054279749478,
+    0.9941634241245136,
+    0.9958932238193019,
+    0.9871159563924677
+  ],
+  "hyper": {
+    "margin": 0.2,
+    "alpha": 0.2,
+    "rule_epochs": 8,
+    "mae_epochs": 8,
+    "sim_epochs": 30,
+    "sim_batch": 512,
+    "sim_feat": 256
+  }
+}
